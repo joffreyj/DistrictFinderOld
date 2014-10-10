@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <!--The viewport meta tag is used to improve the presentation and behavior of the samples 
+      on iOS devices-->
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+    <title>Identify Sample</title>
+    
+    <link rel="stylesheet" href="http://js.arcgis.com/3.11/dijit/themes/claro/claro.css">
+    <link rel="stylesheet" href="http://js.arcgis.com/3.11/esri/css/esri.css">
+    <style>
+      html, body {
+        height: 98%;
+        width: 98%;
+        margin: 0;
+        padding: 5px;
+      }
+	  .simpleGeocoder .esriGeocoderContainer {
+		width: 400px;
+		font-size: 12px;
+		line-height: 16px;
+		font-family: verdana,helvetica;
+		}
+	  .simpleGeocoder .esriGeocoder input {
+		outline: 0;
+		display: block;
+		border: 0;
+		border-collapse: collapse;
+		vertical-align: middle;
+		font-size: 12px;
+		line-height: 16px;
+		margin: 0;
+		padding: 6px 0;
+		float: left;
+		color: #444;
+		background: none;
+		margin: 0 6px;
+		width: 300px;
+		}
+    </style>
+
+    <script src="http://js.arcgis.com/3.11/"></script>
+    <script>
+      var map, houseResults, senateResults, votingResults, symbol, screenPnt, pointSymbol;
+
+      require([
+        "esri/map",
+        "esri/layers/ArcGISDynamicMapServiceLayer",
+        "esri/symbols/SimpleFillSymbol",
+        "esri/symbols/SimpleLineSymbol",
+        "esri/tasks/IdentifyTask",
+        "esri/tasks/IdentifyParameters",
+		"esri/tasks/locator", 
+		"esri/graphic",
+        "esri/geometry/webMercatorUtils",
+        "esri/symbols/SimpleMarkerSymbol", 
+		"esri/graphic",
+		"esri/dijit/Geocoder",		
+        "dojo/on",
+        "dojo/parser",
+        "esri/Color",
+        "dijit/registry",
+        "dijit/form/Button",
+        "dijit/layout/ContentPane",
+        "dijit/layout/TabContainer",
+        "dojo/domReady!"
+      ],
+        function (
+          Map, ArcGISDynamicMapServiceLayer, SimpleFillSymbol, SimpleLineSymbol,
+          IdentifyTask, IdentifyParameters, Locator, graphic, webMercatorUtils, SimpleMarkerSymbol, 
+		  Graphic, Geocoder, on, parser, Color, registry
+        ) {
+
+          parser.parse();
+
+			var identifyTask, identifyParams;
+			
+			
+            map = new Map("mapDiv", {
+              basemap: "streets",
+               center: [-92.541, 34.70],
+              zoom: 8
+            });
+            map.on("load", initFunctionality);
+
+			var locator = new Locator("http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer");						
+								
+			locator.on("location-to-address-complete", function(evt) {
+			  if (evt.address.address) {
+				var address = evt.address.address;
+				var location = webMercatorUtils.geographicToWebMercator(evt.address.location);
+				//this service returns geocoding results in geographic - convert to web mercator to display on map
+				// var location = webMercatorUtils.geographicToWebMercator(evt.location);
+				var graphic = new Graphic(location, pointSymbol, address);
+				map.graphics.add(graphic);
+				
+				
+				identifyParams.geometry = evt.address.location; //mapPoint;
+				identifyParams.mapExtent = map.extent;
+				identifyTask.execute(identifyParams, function (idResults) {
+				  addToMap(idResults, evt);
+				});
+				map.infoWindow.setTitle(evt.address.address.Address);
+				//map.infoWindow.setTitle(graphic.getTitle());
+				//map.infoWindow.setContent(graphic.getContent());
+				
+				//display the info window with the address information
+				//var screenPnt = map.toScreen(location);
+				//map.infoWindow.resize(200,100);
+				//map.infoWindow.show(screenPnt, map.getInfoWindowAnchor(screenPnt));
+			  }
+			});
+			
+			
+            var landBaseLayer = new ArcGISDynamicMapServiceLayer("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer", {
+              opacity: 0.3
+            });
+            map.infoWindow.on("show", function () {
+              registry.byId("tabs").resize();
+            });
+            map.addLayer(landBaseLayer);
+
+          function initFunctionality () {
+            
+			map.on("click", function(evt) {
+			  map.graphics.clear();
+			  locator.locationToAddress(webMercatorUtils.webMercatorToGeographic(evt.mapPoint), 100);
+			});
+								
+			//map.on("click", doIdentify);
+
+            identifyTask = new IdentifyTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer");
+
+            identifyParams = new IdentifyParameters();
+            identifyParams.tolerance = 1;
+            identifyParams.returnGeometry = true;
+            identifyParams.layerIds = [1, 2, 3, 4, 5];
+            identifyParams.layerOption = IdentifyParameters.LAYER_OPTION_ALL;
+            identifyParams.width = map.width;
+            identifyParams.height = map.height;
+
+            map.infoWindow.resize(415, 200);
+            map.infoWindow.setContent(registry.byId("tabs").domNode);
+            map.infoWindow.setTitle("Identify Results");
+			pointSymbol = new SimpleMarkerSymbol(
+			  SimpleMarkerSymbol.STYLE_CIRCLE, 
+			  15, 
+			  new SimpleLineSymbol(
+				SimpleLineSymbol.STYLE_SOLID, 
+				new Color([0, 0, 255, 0.5]), 
+				8
+			  ), 
+			  new Color([0, 0, 255])
+			);
+            symbol = new SimpleFillSymbol(SimpleFillSymbol.STYLE_SOLID,
+              new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID,
+                new Color([255, 0, 0]), 2),
+              new Color([255, 255, 0, 0.25]));
+          }
+
+          /*function doIdentify (event) {
+            map.graphics.clear();
+			locator.locationToAddress(webMercatorUtils.webMercatorToGeographic(event.mapPoint), 100);
+
+            identifyParams.geometry = event.mapPoint;
+            identifyParams.mapExtent = map.extent;
+            identifyTask.execute(identifyParams, function (idResults) {
+              addToMap(idResults, event);
+            });
+          }*/
+		  
+		  function doIdentifyGeocoder (event) {
+            map.graphics.clear();
+			var graphic = new Graphic(event.result.feature.geometry, pointSymbol);
+			map.graphics.add(graphic); 
+			map.infoWindow.setTitle(event.result.name);
+            identifyParams.geometry = event.result.feature.geometry; //event.mapPoint;
+            identifyParams.mapExtent = map.extent;
+            identifyTask.execute(identifyParams, function (idResults) {
+              addToMap(idResults, event);
+            });
+          }
+
+          function addToMap (idResults, event) {
+            houseResults = { displayFieldName: null, features: [] };
+            senateResults = { displayFieldName: null, features: [] };
+			votingResults = { displayFieldName: null, features: [] };
+
+            for (var i = 0, il = idResults.length; i < il; i++) {
+              var idResult = idResults[i];
+			  
+			  switch(idResult.layerId){
+				case 2:
+					if (!houseResults.displayFieldName) { houseResults.displayFieldName = idResult.displayFieldName; }
+					houseResults.features.push(idResult.feature);
+					break;
+				case 3:
+                    if (!senateResults.displayFieldName) { senateResults.displayFieldName = idResult.displayFieldName; }
+					senateResults.features.push(idResult.feature);
+					break;
+				case 4:
+					if (!votingResults.displayFieldName) { votingResults.displayFieldName = idResult.displayFieldName; }
+					votingResults.features.push(idResult.feature);
+					break;
+				}
+            }
+            registry.byId("bldgTab").set("content", houseResultTabContent(houseResults));
+            registry.byId("parcelTab").set("content", senateResultTabContent(senateResults));
+			registry.byId("votingTab").set("content", votingResultTabContent(votingResults));
+			
+			if (event.address)
+				screenPnt = map.toScreen(event.address.location);
+			else
+				screenPnt = map.toScreen(event.result.feature.geometry);
+				
+            //map.infoWindow.show(event.screenPoint,
+			 map.infoWindow.show(screenPnt,
+              map.getInfoWindowAnchor(screenPnt));
+          }
+
+          function houseResultTabContent (results) {
+            var template = "";
+            var features = results.features;
+
+                template += "<i>Total features returned: " + features.length + "</i>";
+                template += "<table border='1'>";
+                template += "<tr><th>ID</th><th>House District</th></tr>";
+
+                var parcelId;
+                var fullSiteAddress;
+                for (var i = 0, il = features.length; i < il; i++) {
+                  parcelId = "House District"; //features[i].attributes['PARCELID'];
+                  fullSiteAddress = features[i].attributes['District_1'];
+
+                  template += "<tr>";
+                  template += "<td>" + parcelId + " <a href='#' onclick='showFeature(houseResults.features[" + i + "]); return false;'>(show)</a></td>";
+                  template += "<td>" + fullSiteAddress + "</td>";
+                  template += "</tr>";
+                }
+
+                template += "</table>";
+
+            return template;
+          }
+
+          function senateResultTabContent (results) {
+            var template = "";
+            var features = results.features;
+
+                template += "<i>Total features returned: " + features.length + "</i>";
+                template += "<table border='1'>";
+                template += "<tr><th>ID</th><th>Senate District</th></tr>";
+
+                var parcelId;
+                var fullSiteAddress;
+                for (var i = 0, il = features.length; i < il; i++) {
+                  parcelId = "Senate District"; //features[i].attributes['PARCELID'];
+                  fullSiteAddress = features[i].attributes['District_N'];
+
+                  template += "<tr>";
+                  template += "<td>" + parcelId + " <a href='#' onclick='showFeature(senateResults.features[" + i + "]); return false;'>(show)</a></td>";
+                  template += "<td>" + fullSiteAddress + "</td>";
+                  template += "</tr>";
+                }
+
+                template += "</table>";
+
+            return template;
+          }
+		function votingResultTabContent (results) {
+            var template = "";
+            var features = results.features;
+
+                template += "<i>Total features returned: " + features.length + "</i>";
+                template += "<table border='1'>";
+                template += "<tr><th>ID</th><th>Voting Precinct</th></tr>";
+
+                var parcelId;
+                var fullSiteAddress;
+                for (var i = 0, il = features.length; i < il; i++) {
+                  parcelId = "Voting Precinct"; //features[i].attributes['PARCELID'];
+                  fullSiteAddress = features[i].attributes['NAME'];
+
+                  template += "<tr>";
+                  template += "<td>" + parcelId + " <a href='#' onclick='showFeature(votingResults.features[" + i + "]); return false;'>(show)</a></td>";
+                  template += "<td>" + fullSiteAddress + "</td>";
+                  template += "</tr>";
+                }
+
+                template += "</table>";
+
+            return template;
+          }		  
+		 // Creating a geographic search box widget for the map
+		geocoder = new Geocoder({ 
+          map: map ,
+		  autoComplete: true
+        }, "search");
+		// Finalize the creation of the widget. Called after the constructor for the widget is called and before interacting with the widget.
+        geocoder.startup();
+		// Execute all the queries in the executeQueries function, whenever the widget is selected
+		geocoder.on("select", doIdentifyGeocoder);
+        });
+
+      function showFeature (feature) {
+        map.graphics.clear();
+		// zoom in to show the graphic displayed
+		map.setExtent(feature.geometry.getExtent().expand(1.25));
+        feature.setSymbol(symbol);
+        map.graphics.add(feature);
+      }
+    </script>
+  </head>
+
+  <body class="claro">
+    Click the map to identify house district, school district, voting precinct and school district information.
+    <div id="mapDiv" style="width:100%; height:100%; border:1px solid #000;"><div id="search"></div></div>
+    <!-- info window tabs -->
+    <div id="tabs" dojoType="dijit/layout/TabContainer" style="width:385px; height:150px;">
+      <div id="bldgTab" dojoType="dijit/layout/ContentPane" title="House District"></div>
+      <div id="parcelTab" dojoType="dijit/layout/ContentPane" title="Senate District"></div>
+	  <div id="votingTab" dojoType="dijit/layout/ContentPane" title="Voting Precinct"></div>
+    </div>
+  </body>
+</html>

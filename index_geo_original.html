@@ -1,0 +1,299 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+    <title></title>
+
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/dojo/dijit/themes/tundra/tundra.css">
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/esri/css/esri.css">
+    <style>
+      html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
+      #map{ margin: 0; padding: 0; }
+      #controls {
+        position: absolute;
+        height: 140px;
+        font-family: arial;
+        bottom: 10px;
+        margin: 5px;
+        padding: 5px;
+        z-index: 40;
+        background: #fff;
+        color: #444;
+        width: 440px;
+        left: 10px;
+        -moz-box-shadow: 0 0 5px #888;
+        -webkit-box-shadow: 0 0 5px #888;
+        box-shadow: 0 0 5px #888;
+      }
+      h3 { margin: 0 0 5px 0; border-bottom: 1px solid #444; }
+      .label { display: inline-block; width: 140px; }
+	  #search {
+        display: block;
+        position: absolute;
+        z-index: 2;
+        top: 20px;
+        left: 74px;
+      }
+    </style>
+	 <script src="http://js.arcgis.com/3.9/"></script>
+	<script>
+      var app = {};
+
+      require([
+        "dojo/parser", "dojo/promise/all", "dojo/_base/connect", 
+        "esri/Color", "dojo/_base/array", "dojo/dom",
+        "esri/config", "esri/map", "esri/geometry/Extent",
+        "esri/symbols/SimpleFillSymbol", "esri/layers/ArcGISDynamicMapServiceLayer",
+        "esri/tasks/query", "esri/tasks/QueryTask","esri/dijit/Geocoder",
+		"esri/symbols/SimpleMarkerSymbol", "esri/graphic",
+        "dijit/layout/BorderContainer", "dijit/layout/ContentPane",		
+        "dojo/domReady!"
+      ], function(
+        parser, all, connect, 
+        Color, arrayUtils, dom,
+        esriConfig, Map, Extent,
+        SimpleFillSymbol, ArcGISDynamicMapServiceLayer,
+        Query, QueryTask, Geocoder, SimpleMarkerSymbol, Graphic
+      ) {
+        // create layout dijits
+        parser.parse();
+        // specify proxy for request with URL lengths > 2k characters
+        esriConfig.defaults.io.proxyUrl = "/proxy";
+		initialExtent = new esri.geometry.Extent(172209.475904854, 3601359.1077277837, 985642.8725089643,  4064083.0555859907, new esri.SpatialReference({
+                    wkid: 26915  
+         }));
+		app.map = new esri.Map("map", {
+				  extent: initialExtent,
+				  logo:false,
+				  zoom: 8
+		});		
+        /*app.map = new Map("map"); */
+        var basemap = new ArcGISDynamicMapServiceLayer("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer");
+        app.map.addLayer(basemap);
+
+		geocoder = new Geocoder({ 
+          map: app.map ,
+		  autoComplete: true
+        }, "search");
+        geocoder.startup();
+		geocoder.on("select", executeQueries);
+		/*geocoder.on('find-results', function (candidate) {
+			geom = candidate.results.results[0].feature.geometry;
+			var symbol = new SimpleMarkerSymbol();
+			symbol.setStyle(SimpleMarkerSymbol.STYLE_SQUARE);
+			symbol.setColor(new Color([153, 0, 51, 0.75]));
+			var graphic = new Graphic(geom, symbol);
+			app.map.graphics.add(graphic);
+        })*/
+	
+        // query task and query for parcels
+        app.qtParcels = new QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/1");
+        app.qParcels = new Query();
+		
+        // query task and query for landuse 
+        app.qtBuildings = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/2");
+        app.qBuildings = new esri.tasks.Query();
+
+        // query task and query for voting precint 
+        app.qtPrecincts = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/3");
+        app.qPrecincts = new esri.tasks.Query();
+        
+        // query task and query for voting precint 
+        app.qtSchools = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/4");
+        app.qSchools = new esri.tasks.Query();
+        
+        // query task and query for voting precint 
+        app.qtCounties = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/5");
+        app.qCounties = new esri.tasks.Query();
+        
+        app.qParcels.returnGeometry = app.qBuildings.returnGeometry = app.qPrecincts.returnGeometry = app.qSchools.returnGeometry = app.qCounties.returnGeometry = true;
+        app.qParcels.outFields = app.qBuildings.outFields = app.qPrecincts.outFields = app.qSchools.outFields = app.qCounties.outFields = ["*"];
+
+        app.map.on("click", executeQueries);
+
+        function executeQueries(e) {
+          var parcels, buildings, precincts, schools, counties, promises, 
+            qGeom, point, pxWidth, padding;
+
+          // create an extent from the mapPoint that was clicked
+          // this is used to return features within 3 pixels of the click point
+          point = e.mapPoint;
+          pxWidth = app.map.extent.getWidth() / app.map.width;
+          padding = 2 * pxWidth;
+          //qGeom = new Extent(e.result.extent);
+		  
+		 /* qGeom = new Extent({
+            "xmin": point.x - padding,
+            "ymin": point.y - padding,
+            "xmax": point.x + padding,
+            "ymax": point.y + padding,
+            "spatialReference": point.spatialReference
+          });*/
+			
+          // use the extent for the query geometry
+          app.qParcels.geometry = app.qBuildings.geometry = app.qPrecincts.geometry = app.qSchools.geometry = app.qCounties.geometry = point;
+          
+          parcels = app.qtParcels.execute(app.qParcels);
+          buildings = app.qtBuildings.execute(app.qBuildings);
+          precincts = app.qtPrecincts.execute(app.qPrecincts);
+          schools = app.qtSchools.execute(app.qSchools);
+          counties = app.qtCounties.execute(app.qCounties);
+          
+          console.log("deferreds: ", parcels, buildings, precincts, schools, counties);
+          promises = new all([parcels, buildings, precincts, schools, counties]);
+          promises.then(handleQueryResults);
+          console.log("created d list");
+		  
+		  geom = e.result.feature.geometry;
+			var symbol = new SimpleMarkerSymbol();
+			symbol.setStyle(SimpleMarkerSymbol.STYLE_SQUARE);
+			symbol.setColor(new Color([153, 0, 51, 0.75]));
+			var graphic = new Graphic(geom, symbol);
+			app.map.graphics.add(graphic);
+        }
+
+        function handleQueryResults(results) {
+          console.log("queries finished: ", results);
+          var parcels, buildings, precincts;
+
+          // make sure both queries finished successfully
+          if ( ! results[0].hasOwnProperty("features") ) {
+            console.log("Parcels query failed.");
+          }
+          if ( ! results[1].hasOwnProperty("features") ) {
+            conosle.log("Buildings query failed.");
+          }
+          if ( ! results[2].hasOwnProperty("features") ) {
+            conosle.log("Precincts query failed.");
+          }
+          if ( ! results[3].hasOwnProperty("features") ) {
+            conosle.log("Schools query failed.");
+          }
+          if ( ! results[4].hasOwnProperty("features") ) {
+            conosle.log("Counties query failed.");
+          }
+          // results from deferred lists are returned in the order they were created
+          // so parcel results are first in the array and buildings results are second
+          parcels = results[0].features;
+          buildings = results[1].features;
+          precincts = results[2].features;
+          schools = results[3].features;
+          counties = results[4].features;
+          
+          //app.map.graphics.clear();		 
+		  		 
+		  
+          // add the results to the map
+          /*arrayUtils.forEach(parcels, function(feat) {
+            feat.setSymbol(new SimpleFillSymbol());
+            app.map.graphics.add(feat);
+          });
+          arrayUtils.forEach(buildings, function(feat) {
+            feat.setSymbol(
+              new SimpleFillSymbol()
+                .setColor(new Color([255, 0, 255, 0.5]))
+                .setOutline(null)
+            );
+            app.map.graphics.add(feat);
+          });
+          arrayUtils.forEach(precincts, function(feat) {
+            feat.setSymbol(
+              new SimpleFillSymbol()
+                .setColor(new Color([30, 0, 255, 0.5]))
+                .setOutline(null)
+            );
+            app.map.graphics.add(feat);
+          });
+          arrayUtils.forEach(schools, function(feat) {
+            feat.setSymbol(
+              new SimpleFillSymbol()
+                .setColor(new Color([255, 0, 30, 0.5]))
+                .setOutline(null)
+            );
+            app.map.graphics.add(feat);
+          });
+          arrayUtils.forEach(counties, function(feat) {
+            feat.setSymbol(
+              new SimpleFillSymbol()
+                .setColor(new Color([0, 255, 0, 0.2]))
+                .setOutline(null)
+            );
+            app.map.graphics.add(feat);
+          });*/
+          dom.byId("results").innerHTML = "House District Number:  " +  parcels[0].attributes["District_1"] + 
+            "<br />Senate District Number:  " + buildings[0].attributes["District_N"] + 
+            "<br />Voting Precinct:  " + precincts[0].attributes["NAME"] +
+            "<br />School District:  " + schools[0].attributes["NAME"] +
+            "<br />County:  " + counties[0].attributes["NAME10"];
+        }
+		function showResults(evt) {
+          var candidate;
+          var symbol = new SimpleMarkerSymbol();
+          var infoTemplate = new InfoTemplate(
+            "Location", 
+            "Address: ${address}<br />Score: ${score}<br />Source locator: ${locatorName}"
+          );
+          symbol.setStyle(SimpleMarkerSymbol.STYLE_SQUARE);
+          symbol.setColor(new Color([153,0,51,0.75]));		            		
+		
+          var geom;
+          arrayUtils.every(evt.addresses, function(candidate) {
+            console.log(candidate.score);
+            if (candidate.score > 80) {
+              console.log(candidate.location);
+              var attributes = { 
+                address: candidate.address, 
+                score: candidate.score, 
+                locatorName: candidate.attributes.Loc_name 
+              };   
+              geom = candidate.location;
+              var graphic = new Graphic(geom, symbol, attributes, infoTemplate);
+              //add a graphic to the map at the geocoded location
+              map.graphics.add(graphic);
+              //add a text symbol to the map listing the location of the matched address.
+              var displayText = candidate.address;
+              var font = new Font(
+                "16pt",
+                Font.STYLE_NORMAL, 
+                Font.VARIANT_NORMAL,
+                Font.WEIGHT_BOLD,
+                "Helvetica"
+              );
+             
+              var textSymbol = new TextSymbol(
+                displayText,
+                font,
+                new Color("#666633")
+              );
+              textSymbol.setOffset(0,8);
+              map.graphics.add(new Graphic(geom, textSymbol));
+              return false; //break out of loop after one candidate with score greater  than 80 is found.
+            }
+          });
+          if ( geom !== undefined ) {
+            map.centerAndZoom(geom, 12);
+          }
+        }
+      });
+    </script>
+  </head>
+  
+  <body class="tundra">
+    <div data-dojo-type="dijit.layout.BorderContainer" 
+         data-dojo-props="design:'headline',gutters:false" 
+         style="width: 100%; height: 100%; margin: 0;">		
+      <div id="map" 
+           data-dojo-type="dijit.layout.ContentPane" 
+           data-dojo-props="region:'center'">
+        <div id="search"></div>
+        <div id="controls">
+          <h3>Neighborhood Districts</h3>
+          <div id="results">Click the map to find your Districts.</div>
+        </div>
+
+      </div>
+    </div>
+  </body>
+</html>
+ 

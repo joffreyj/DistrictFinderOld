@@ -1,0 +1,723 @@
+<!-- /*
+* The program is to show House Districts, Senate Districts, Voting Precincts, School Districts, Counties and number of each of these values
+* based on the address provided by the user, in the Address box. Zoom in and Zoom out features are also available on the map.
+* Legend displays the information of the districts, precincts and counties, of the address provided by the user. Graphic representing each of these
+* is also shown on the map with different colors, along with a address marker point, which shows the exact address entered by user.
+* Click on the legend element, to view its graphic on the map. At any time, graphic of only one of the legend elements can be viewed.
+*/ -->
+
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+    <title></title>
+
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/dojo/dijit/themes/tundra/tundra.css">
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/esri/css/esri.css">
+    <style>
+      html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
+      #map{ margin: 0; padding: 0; }
+      #controls {
+		height:auto;
+		min-height:150px;
+		height:auto !important;        /* for IE as it does not support min-height */
+		height:150px;            
+        position: absolute;
+        /*height: 190px;*/
+        font-family: arial;
+        top: 100px;
+        margin: 5px;
+        padding: 5px;
+        z-index: 40;
+        background: #fff;
+        color: #444;
+        width: 440px;
+        left: 10px;
+        -moz-box-shadow: 0 0 5px #888;
+        -webkit-box-shadow: 0 0 5px #888;
+        box-shadow: 0 0 5px #888;
+      }
+      h3 { margin: 0 0 5px 0; border-bottom: 1px solid #444; }
+      .label { display: inline-block; width: 140px; }
+	  #search {
+	  width: 250px;
+        display: block;
+        position: relative;
+        /*z-index: 2;*/
+        top: 10px;
+        left: 0px;
+      }
+	  .simpleGeocoder .esriGeocoderContainer {
+		width: 400px;
+		font-size: 12px;
+		line-height: 16px;
+		font-family: verdana,helvetica;
+		}
+	  .simpleGeocoder .esriGeocoder input {
+		outline: 0;
+		display: block;
+		border: 0;
+		border-collapse: collapse;
+		vertical-align: middle;
+		font-size: 12px;
+		line-height: 16px;
+		margin: 0;
+		padding: 6px 0;
+		float: left;
+		color: #444;
+		background: none;
+		margin: 0 6px;
+		width: 300px;
+		}
+    </style>
+	<script type="text/javascript" src="http://js.arcgis.com/3.9/"></script>
+	<script>
+      var app = {}; //This variable holds the application variables
+	  var legendSelected = ""; //This variable holds the choice the user selects from the legend (House District, Senate District, etc.)
+	  var graphic;
+	  
+      require([
+        "dojo/parser", "dojo/promise/all", "dojo/_base/connect", 
+        "esri/Color", "dojo/_base/array", "dojo/dom", "esri/layers/FeatureLayer",
+        "esri/config", "esri/map", "esri/geometry/Extent", "dijit/form/CheckBox", "dijit/form/RadioButton",
+        "esri/symbols/SimpleFillSymbol", "esri/layers/ArcGISDynamicMapServiceLayer",
+        "esri/tasks/query", "esri/tasks/QueryTask","esri/dijit/Geocoder", "esri/InfoTemplate",
+		"esri/symbols/SimpleMarkerSymbol", "esri/symbols/SimpleLineSymbol","esri/graphic", "dojo/dnd/Moveable",
+		"esri/symbols/TextSymbol", "esri/renderers/SimpleRenderer", "esri/layers/LabelLayer",
+        "dijit/layout/BorderContainer", "dijit/layout/ContentPane",		
+        "dojo/domReady!"
+      ], function(
+        parser, all, connect, 
+        Color, arrayUtils, dom, FeatureLayer,
+        esriConfig, Map, Extent, CheckBox, RadioButton,
+        SimpleFillSymbol, ArcGISDynamicMapServiceLayer,
+        Query, QueryTask, Geocoder, InfoTemplate,
+		SimpleMarkerSymbol, SimpleLineSymbol, Graphic, Moveable,
+		TextSymbol, SimpleRenderer, LabelLayer
+      ) {
+        // create layout dijits
+        parser.parse();
+        // specify proxy for request with URL lengths > 2k characters
+        //esriConfig.defaults.io.proxyUrl = "/proxy";
+		initialExtent = new esri.geometry.Extent(172209.475904854, 3601359.1077277837, 985642.8725089643,  4064083.0555859907, new esri.SpatialReference({
+                    wkid: 26915  
+         }));
+		app.map = new esri.Map("map", {
+				  extent: initialExtent,
+				  logo:false,
+				  zoom: 8
+		});		
+        
+		var infoTemplate = new InfoTemplate("Location", "<table><tr><td>Address:</td><td>${name}</td></tr></table>");
+		
+        // Retrieving a map and adding it as the basemap in our map
+		var basemap = new ArcGISDynamicMapServiceLayer("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer");
+        app.map.addLayer(basemap);
+
+		var roads = new FeatureLayer(
+			"http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/0", {
+			mode: FeatureLayer.MODE_ONDEMAND,
+			infoTemplate:null,
+			outFields: ["*"]
+		});
+		
+		app.map.addLayer(roads);
+		roads.setVisibility(false);
+		
+		var housedist = new FeatureLayer(
+			"http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/2", {
+			mode: FeatureLayer.MODE_ONDEMAND,
+			infoTemplate:null,
+			outFields: ["*"]
+		});
+		
+		app.map.addLayer(housedist);
+		housedist.setVisibility(false);
+		
+		// create a renderer for the states layer to override default symbology
+        var senateColor = new Color("#666");
+        var senateLine = new SimpleLineSymbol("solid", senateColor, 1.5);
+        var senateSymbol = new SimpleFillSymbol("solid", senateLine, null);
+        var senateRenderer = new SimpleRenderer(senateSymbol);
+		var senatedist = new FeatureLayer(
+			"http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/3", {
+			id: "senatedist",
+			mode: FeatureLayer.MODE_ONDEMAND,
+			infoTemplate:null,
+			outFields: ["District_N"]
+		});
+		senatedist.setRenderer(senateRenderer);
+		
+		app.map.addLayer(senatedist);
+		senatedist.setVisibility(false);
+		
+		var senateLabel = new TextSymbol().setColor(senateColor);
+        senateLabel.font.setSize("14pt");
+        senateLabel.font.setFamily("arial");
+        senateLabelRenderer = new SimpleRenderer(senateLabel);
+        var labels = new LabelLayer({ id: "labels" });
+        // tell the label layer to label the countries feature layer 
+        // using the field named "admin"
+        labels.addFeatureLayer(senatedist, senateLabelRenderer, "${District_N}");
+        // add the label layer to the map
+        app.map.addLayer(labels);
+				
+		
+		var schooldist = new FeatureLayer(
+			"http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/5", {
+			mode: FeatureLayer.MODE_ONDEMAND,
+			infoTemplate:null,
+			outFields: ["*"]
+		});
+		
+		app.map.addLayer(schooldist);
+		schooldist.setVisibility(false);
+		
+		var radioHouse = new RadioButton({
+			checked: true,
+			value: "house",
+			name: "layerResults",
+		}, "radioHouse").startup();
+		
+		var radioSenate = new RadioButton({
+			checked: true,
+			value: "senate",
+			name: "layerResults",
+		}, "radioSenate").startup();
+		
+		var radioVoting = new RadioButton({
+			checked: true,
+			value: "voting",
+			name: "layerResults",
+		}, "radioVoting").startup();
+		
+		var radioSchool = new RadioButton({
+			checked: true,
+			value: "school",
+			name: "layerResults",
+		}, "radioSchool").startup();
+		
+		var radioCounty = new RadioButton({
+			checked: true,
+			value: "county",
+			name: "layerResults",
+		}, "radioCounty").startup();
+		
+		// Creating a geographic search box widget for the map
+		geocoder = new Geocoder({ 
+          map: app.map ,
+		  autoComplete: true
+        }, "search");
+		// Finalize the creation of the widget. Called after the constructor for the widget is called and before interacting with the widget.
+        geocoder.startup();
+		// Execute all the queries in the executeQueries function, whenever the widget is selected
+		geocoder.on("select", runIdentifies);
+	
+		var dnd = new Moveable(dom.byId("controls"), {skip: true});
+		
+		var houseCheckBox = new CheckBox({
+			name: "houseCheckBox",
+			value: "agreed",
+			checked: false,
+			onChange: function(b){if( housedist.visible == true){ housedist.setVisibility(false);}else{housedist.setVisibility(true);} }
+		}, "houseCheckBox").startup();
+
+		var senateCheckBox = new CheckBox({
+			name: "senateCheckBox",
+			value: "agreed",
+			checked: false,
+			onChange: function(b){if( senatedist.visible == true){ senatedist.setVisibility(false);}else{senatedist.setVisibility(true);} }
+		}, "senateCheckBox").startup();
+		
+		var roadsCheckBox = new CheckBox({
+			name: "roadsCheckBox",
+			value: "agreed",
+			checked: false,
+			onChange: function(b){if( roads.visible == true){ roads.setVisibility(false);}else{roads.setVisibility(true);} }
+		}, "roadsCheckBox").startup();
+		
+		var schoolsCheckBox = new CheckBox({
+			name: "schoolsCheckBox",
+			value: "agreed",
+			checked: false,
+			onChange: function(b){if( schooldist.visible == true){ schooldist.setVisibility(false);}else{schooldist.setVisibility(true);} }
+		}, "schoolsCheckBox").startup();
+		
+        // query task and query for House Districts
+        app.qtHouses = new QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/2");
+        app.qHouses = new Query();
+		
+        // query task and query for Senate Districts
+        app.qtSenates = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/3");
+        app.qSenates = new esri.tasks.Query();
+
+        // query task and query for voting precinct 
+        app.qtPrecincts = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/4");
+        app.qPrecincts = new esri.tasks.Query();
+        
+        // query task and query for School Districts 
+        app.qtSchools = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/5");
+        app.qSchools = new esri.tasks.Query();
+        
+        // query task and query for Counties 
+        app.qtCounties = new esri.tasks.QueryTask("http://argis.ualr.edu/ieagis/rest/services/District_Finder/MapServer/6");
+        app.qCounties = new esri.tasks.Query();
+        
+        // Including geometry in each feature of the Feature Set
+		app.qHouses.returnGeometry = app.qSenates.returnGeometry = app.qPrecincts.returnGeometry = app.qSchools.returnGeometry = app.qCounties.returnGeometry = true;
+        // Selecting all the fields of a list. Works like Select * from table1
+		app.qHouses.outFields = app.qSenates.outFields = app.qPrecincts.outFields = app.qSchools.outFields = app.qCounties.outFields = ["*"];
+
+		function runIdentifies(evt) {  
+			var idPoint = evt.result.feature.geometry;  
+			//var idPoint = evt.mapPoint;  
+			var layers = arrayUtils.map(app.map.layerIds, function (layerId) {  
+				return app.map.getLayer(layerId);  
+			});  
+		  
+			//this filters out the basemaps and layers with no visible layers  
+			layers = arrayUtils.filter(layers, function (layer) {  
+				if (layer.visibleLayers !== undefined) {  
+					if (layer.visibleLayers[0] !== -1) {  
+						return layer.getImageUrl && layer.visible;  
+					}  
+				}  
+			});  
+			var params = createIdentifyParams(layers, evt);  
+			var tasks = arrayUtils.map(layers, function (layer) {  
+				return new IdentifyTask(layer.url);  
+			});  
+			var defTasks = arrayUtils.map(tasks, function (task) {  
+				return new Deferred();  
+			});  
+		  
+			var promises = [];  
+		  
+			for (var i = 0; i < tasks.length; i++) {  
+				promises.push(tasks[i].execute(params[i]));  
+			}  
+		  
+			var allPromises = new all(promises);  
+			allPromises.then(function (r) { showIdentifyResults(r, tasks, idPoint); });  
+		}  
+		function createIdentifyParams(layers, evt) {  
+			var identifyParamsList = [];  
+			arrayUtils.forEach(layers, function (layer) {  
+				var idParams = new IdentifyParameters();  
+				idParams.width = map.width;  
+				idParams.height = map.height;  
+				idParams.geometry = evt.mapPoint;  
+				idParams.mapExtent = map.extent;  
+				idParams.layerOption = IdentifyParameters.LAYER_OPTION_VISIBLE;  
+				idParams.layerIds = layer.visibleLayers;  
+				idParams.tolerance = 3;  
+				idParams.returnGeometry = true;  
+				idParams.spatialReference = map.spatialReference;  
+				identifyParamsList.push(idParams);  
+			});  
+			return identifyParamsList;  
+		}  
+		
+        function executeQueries(e) {
+          var houses, senates, precincts, schools, counties, promises, 
+            qGeom, point, pxWidth, padding;
+          
+          qGeom = new Extent(e.result.extent);
+		  
+			
+          // use the extent for the query geometry
+          app.qHouses.geometry = app.qSenates.geometry = app.qPrecincts.geometry = app.qSchools.geometry = app.qCounties.geometry = qGeom;
+          
+          houses = app.qtHouses.execute(app.qHouses);
+          senates = app.qtSenates.execute(app.qSenates);
+          precincts = app.qtPrecincts.execute(app.qPrecincts);
+          schools = app.qtSchools.execute(app.qSchools);
+          counties = app.qtCounties.execute(app.qCounties);
+          
+          console.log("deferreds: ", houses, senates, precincts, schools, counties);
+		  // Using promise to wait until all the asynchronous queries get executed and returning the result in promise.
+          promises = new all([houses, senates, precincts, schools, counties]);
+          // Executing the handleQueryResults method with the result obtained in promise.
+		  promises.then(handleQueryResults);
+          console.log("created d list");
+		  
+		  // Clear all graphics on the map
+		  app.map.graphics.clear();	
+		  
+		  // To set up address marker point on the map
+		  geom = e.result.feature.geometry;
+		  
+		  var symbol = new SimpleMarkerSymbol(
+			  SimpleMarkerSymbol.STYLE_CIRCLE, 
+			  15, 
+			  new SimpleLineSymbol(
+				SimpleLineSymbol.STYLE_SOLID, 
+				new Color([0, 0, 255, 0.5]), 
+				8
+			  ), 
+			  new Color([0, 0, 255])
+			);
+
+
+/*function runIdentifies(evt) {  
+    var idPoint = evt.mapPoint;  
+    var layers = arrayUtils.map(map.layerIds, function (layerId) {  
+        return map.getLayer(layerId);  
+    });  
+  
+    //this filters out the basemaps and layers with no visible layers  
+    layers = arrayUtils.filter(layers, function (layer) {  
+        if (layer.visibleLayers !== undefined) {  
+            if (layer.visibleLayers[0] !== -1) {  
+                return layer.getImageUrl && layer.visible;  
+            }  
+        }  
+    });  
+    var params = createIdentifyParams(layers, evt);  
+    var tasks = arrayUtils.map(layers, function (layer) {  
+        return new IdentifyTask(layer.url);  
+    });  
+    var defTasks = arrayUtils.map(tasks, function (task) {  
+        return new Deferred();  
+    });  
+  
+    var promises = [];  
+  
+    for (var i = 0; i < tasks.length; i++) {  
+        promises.push(tasks[i].execute(params[i]));  
+    }  
+  
+    var allPromises = new all(promises);  
+    allPromises.then(function (r) { showIdentifyResults(r, tasks, idPoint); });  
+}  
+  
+function createIdentifyParams(layers, evt) {  
+    var identifyParamsList = [];  
+    arrayUtils.forEach(layers, function (layer) {  
+        var idParams = new IdentifyParameters();  
+        idParams.width = map.width;  
+        idParams.height = map.height;  
+        idParams.geometry = evt.mapPoint;  
+        idParams.mapExtent = map.extent;  
+        idParams.layerOption = IdentifyParameters.LAYER_OPTION_VISIBLE;  
+        idParams.layerIds = layer.visibleLayers;  
+        idParams.tolerance = 3;  
+        idParams.returnGeometry = true;  
+        idParams.spatialReference = map.spatialReference;  
+        identifyParamsList.push(idParams);  
+    });  
+    return identifyParamsList;  
+}  
+  
+function showIdentifyResults(r, tasks, idPoint) {  
+    var results = [];  
+    var taskUrls = [];  
+    r = arrayUtils.filter(r, function (results) {  
+        return r[0];  
+    });  
+  
+    for (var i = 0; i < r.length; i++) {  
+        results = results.concat(r[i]);  
+        for (var j = 0; j < r[i].length; j++) {  
+            taskUrls = taskUrls.concat(tasks[i].url);  
+        }  
+    }  
+  
+    var formatResults = arrayUtils.map(results, function (result, index) {  
+        var feature = result.feature;  
+        //this adds new attributes to the feature for the layerName and service URL  
+        feature.attributes.layerName = result.layerName;  
+        feature.attributes.taskUrl = taskUrls[index];  
+        return feature;  
+    });  
+  
+    if (formatResults.length > 0) {  
+    //this is a separate function to put the results into a TabContainer with each service on its own tab  
+       if (buildTabContainer(formatResults)) {  
+            map.infoWindow.show(idPoint);  
+        }  
+    }  
+}  */
+
+
+
+			
+		  var address = e.result.name;
+		  var location = e.result.feature.geometry;
+		  graphic = new Graphic(geom, symbol, address, infoTemplate);
+		  graphic.setAttributes({"name":address});
+		  graphic.id = "addressGraphic";
+		  app.map.graphics.add(graphic);
+		  
+		  app.map.infoWindow.setTitle("Location");
+          app.map.infoWindow.setContent(graphic.getContent());
+          
+		   app.map.infoWindow.show(location);
+		   
+          //display the info window with the address information
+          //var screenPnt = app.map.toScreen(location);
+          app.map.infoWindow.resize(400,200);
+          //app.map.infoWindow.add(screenPnt, map.getInfoWindowAnchor(screenPnt));
+			
+        }
+
+        function handleQueryResults(results) {
+          console.log("queries finished: ", results);
+          var houses, senates, precincts;
+
+          // make sure both queries finished successfully
+          if ( ! results[0].hasOwnProperty("features") ) {
+            console.log("House query failed.");
+          }
+          if ( ! results[1].hasOwnProperty("features") ) {
+            conosle.log("Senates query failed.");
+          }
+          if ( ! results[2].hasOwnProperty("features") ) {
+            conosle.log("Precincts query failed.");
+          }
+          if ( ! results[3].hasOwnProperty("features") ) {
+            conosle.log("Schools query failed.");
+          }
+          if ( ! results[4].hasOwnProperty("features") ) {
+            conosle.log("Counties query failed.");
+          }
+          // results from deferred lists are returned in the order they were created
+          // so houses results are first in the array and senates results are second
+          houses = results[0].features;
+          senates = results[1].features;
+          precincts = results[2].features;
+          schools = results[3].features;
+          counties = results[4].features;
+          
+          // To set up the elements of the legend and the respective data to be displayed against each element
+		  dom.byId("results").innerHTML = "<h3>Results</h3><input type=\"radio\" name=\"layerResults\" id=\"radioOne\" value=\"house\"/> <label for=\"radioOne\"><span id='houses'> House District Number:  " +  houses[0].attributes["District_1"] + 
+            "</span></label> <br /><input type=\"radio\" name=\"layerResults\" id=\"radioTwo\" value=\"house\"/> <label for=\"radioTwo\"><span id='senates'> Senate District Number:  " + senates[0].attributes["District_N"] + 
+            "</span></label> <br /><input type=\"radio\" name=\"layerResults\" id=\"radioThree\" value=\"house\"/> <label for=\"radioThree\"><span id='precincts'> Voting Precinct:  " + precincts[0].attributes["NAME"] +
+            "</span></label> <br /><input type=\"radio\" name=\"layerResults\" id=\"radioFour\" value=\"house\"/> <label for=\"radioFour\"><span id='schools'> School District:  " + schools[0].attributes["NAME"] +
+            "</span></label> <br /><input type=\"radio\" name=\"layerResults\" id=\"radioFive\" value=\"house\"/> <label for=\"radioFive\"><span id='counties'> County:  " + counties[0].attributes["NAME10"] +
+			"</span></label>";
+						
+			var housesSpan = dojo.byId("houses");
+			dojo.connect(housesSpan, "mouseover", function(evt){
+				dojo.style(housesSpan, "cursor", "pointer");			
+			});
+			// To show the house districts graphic on the map
+			dojo.connect(radioOne, "onclick", function(evt){
+				dojo.style(housesSpan, "cursor", "pointer");
+				// clear the Previous Graphic from the map when the user selects this choice
+				clearGraphics();
+				// Reset the legend to black text / white background when the user selects this choice
+				clearLegend();
+				// make this legend the selected legend
+				legendSelected = housesSpan;
+				// set color of the legend item which is selected
+				dojo.style(housesSpan, "backgroundColor", "gray");
+				// set text colour of the legend item which is selected
+				dojo.style(housesSpan, "color", "white");
+				// set up the graphic to be displayed on the map
+				arrayUtils.forEach(houses, function(feat) {
+					feat.setSymbol(new SimpleFillSymbol()
+					.setColor(new Color([192, 192, 192, 0.5]))
+					.setOutline(null)
+				);
+				feat.id="housesGraphic";
+				// add all features to the graphics of the map
+				app.map.graphics.add(feat);
+				// zoom in to show the graphic displayed
+				app.map.setExtent(feat.geometry.getExtent().expand(1.25));
+					
+				app.map.graphics.add(graphic);					
+				});
+			});
+		
+			var senatesSpan = dojo.byId("senates");
+			dojo.connect(senatesSpan, "mouseover", function(evt){
+				dojo.style(senatesSpan, "cursor", "pointer");			
+			});
+			
+			// To show the senate districts graphic on the map
+			dojo.connect(radioTwo, "onclick", function(evt){
+				dojo.style(senatesSpan, "cursor", "pointer");
+				// clear the Previous Graphic from the map when the user selects this choice
+				clearGraphics();
+				// Reset the legend to black text / white background when the user selects this choice
+				clearLegend();
+				//make this legend the selected legend
+				legendSelected = senatesSpan;
+				// set color of the legend item which is selected
+				dojo.style(senatesSpan, "backgroundColor", "red");
+				// set text color of the legend item which is selected
+				dojo.style(senatesSpan, "color", "white");
+				// set up the graphic to be displayed on the map
+				arrayUtils.forEach(senates, function(feat) {
+					feat.setSymbol(new SimpleFillSymbol()
+					.setColor(new Color([255, 0, 0, 0.5]))
+					.setOutline(null)
+				);
+				feat.id="senatesGraphic";
+				// add all features to the graphics of the map
+				app.map.graphics.add(feat);
+				// zoom in to show the graphic displayed
+				app.map.setExtent(feat.geometry.getExtent().expand(1.25));
+
+				app.map.graphics.add(graphic);
+				});
+			});
+			
+			var precinctsSpan = dojo.byId("precincts");
+			dojo.connect(precinctsSpan, "mouseover", function(evt){
+				dojo.style(precinctsSpan, "cursor", "pointer");			
+			});
+			
+			// To show the Voting Precincts graphic on the map
+			dojo.connect(radioThree, "onclick", function(evt){
+				dojo.style(precinctsSpan, "cursor", "pointer");
+				// clear the Previous Graphic from the map when the user selects this choice
+				clearGraphics();
+				// Reset the legend to black text / white background when the user selects this choice
+				clearLegend();
+				//make this legend the selected legend
+				legendSelected = precinctsSpan;
+				// set color of the legend item which is selected
+				dojo.style(precinctsSpan, "backgroundColor", "violet");
+				// set text color of the legend item which is selected
+				dojo.style(precinctsSpan, "color", "white");
+				// set up the graphic to be displayed on the map
+				arrayUtils.forEach(precincts, function(feat) {
+					feat.setSymbol(new SimpleFillSymbol()
+					.setColor(new Color([255, 0, 255, 0.5]))
+					.setOutline(null)
+				);
+				feat.id="precinctsGraphic";
+				// add all features to the graphics of the map
+				app.map.graphics.add(feat);
+				// zoom in to show the graphic displayed
+				app.map.setExtent(feat.geometry.getExtent().expand(1.25));
+
+				app.map.graphics.add(graphic);
+				});
+			});
+			
+			var schoolsSpan = dojo.byId("schools");
+			dojo.connect(schoolsSpan, "mouseover", function(evt){
+				dojo.style(schoolsSpan, "cursor", "pointer");			
+			});
+			
+			// To show the School Districts graphic on the map
+			dojo.connect(radioFour, "onclick", function(evt){
+				dojo.style(schoolsSpan, "cursor", "pointer");
+				// clear the Previous Graphic from the map when the user selects this choice
+				clearGraphics();
+				// Reset the legend to black text / white background when the user selects this choice
+				clearLegend();
+				//make this legend the selected legend
+				legendSelected = schoolsSpan;
+				// set color of the legend item which is selected
+				dojo.style(schoolsSpan, "backgroundColor", "blue");
+				// set text color of the legend item which is selected
+				dojo.style(schoolsSpan, "color", "white");
+				// set up the graphic to be displayed on the map
+				arrayUtils.forEach(schools, function(feat) {
+					feat.setSymbol(new SimpleFillSymbol()
+					.setColor(new Color([0, 0, 255, 0.5]))
+					.setOutline(null)
+				);
+				feat.id="schoolsGraphic";
+				// add all features to the graphics of the map
+				app.map.graphics.add(feat);
+				// zoom in to show the graphic displayed
+				app.map.setExtent(feat.geometry.getExtent().expand(1.25));
+				
+				app.map.graphics.add(graphic);
+				});
+			});
+			
+			var countiesSpan = dojo.byId("counties");
+			
+			dojo.connect(countiesSpan, "mouseover", function(evt){
+				dojo.style(countiesSpan, "cursor", "pointer");			
+			});
+			
+			// To show the Counties graphic on the map
+			dojo.connect(radioFive, "onclick", function(evt){
+				
+				// clear the Previous Graphic from the map when the user selects this choice
+				clearGraphics();
+				// Reset the legend to black text / white background when the user selects this choice
+				clearLegend();
+				//make this legend the selected legend
+				legendSelected = countiesSpan;
+				// set color of the legend item which is selected
+				dojo.style(countiesSpan, "backgroundColor", "green");
+				// set text color of the legend item which is selected
+				dojo.style(countiesSpan, "color", "white");
+				// set up the graphic to be displayed on the map
+				arrayUtils.forEach(counties, function(feat) {
+					feat.setSymbol(new SimpleFillSymbol()
+					.setColor(new Color([0, 255, 0, 0.3]))
+					.setOutline(null)
+				);
+				feat.id="countiesGraphic";
+				// add all features to the graphics of the map
+				app.map.graphics.add(feat);
+				// zoom in to show the graphic displayed
+				app.map.setExtent(feat.geometry.getExtent().expand(1.25));
+				
+				app.map.graphics.add(graphic);
+				});
+			});
+			
+        }
+		
+		// To clear all recent graphics, except the address point, and show only one graphic which is clicked from legend
+		function clearGraphics(){
+			
+			app.map.graphics.clear();
+
+		}
+		
+		// To clear the color changes of background and text color of each element of the legend
+		function clearLegend(){
+			if(legendSelected !== ""){
+				dojo.style(legendSelected, "backgroundColor", "white");
+				dojo.style(legendSelected, "color", "black");
+			}
+		}
+      });
+    </script>
+  </head>
+  
+  <body class="tundra">
+    <div data-dojo-type="dijit.layout.BorderContainer" 
+         data-dojo-props="design:'headline',gutters:false" 
+         style="width: 100%; height: 100%; margin: 0;">		
+      <div id="map" 
+           data-dojo-type="dijit.layout.ContentPane" 
+           data-dojo-props="region:'center'">        
+        <div id="controls">
+          <h3>District Finder</h3>		 		  
+		  Enter your address to find your Senate District, House District, School District, and Voting Precinct.
+		  <div id="search"></div>
+		  <br/>
+          <div id="results">			
+		  </div><br/>
+		  <h3>Layers</h3>
+		  <table width="100%">
+			<tr>
+				<td width="33%"><input id="schoolsCheckBox" /> <label for="schoolsCheckBox">School Districts</label></td>
+				<td width="33%"><input id="houseCheckBox" /> <label for="houseCheckBox">House Districts</label></td>
+				<td width="33%"><input id="senateCheckBox" /> <label for="senateCheckBox">Senate Districts</label></td>
+			</tr>
+			<!-- tr>
+				<td width="50%"><input id="roadsCheckBox" /> <label for="roadsCheckBox">Roads</label></td>
+				<td><input id="senateCheckBox" /> <label for="senateCheckBox">Senate Districts</label></td>
+			</tr -->
+		  </table>
+        </div>
+
+      </div>
+    </div>
+  </body>
+</html>
+ 
